@@ -53,7 +53,7 @@ export function StudentForm({
     if (student) {
       setName(student.name);
       setRollNumber(student.roll_number);
-      setBatchId(student.batch_id);
+      setBatchId(student.batch_id || "");
     } else {
       setName("");
       setRollNumber("");
