@@ -90,6 +90,12 @@ export function AttendanceForm({ batch, date, onBack }: AttendanceFormProps) {
 
   const handleSubmit = async () => {
     setIsSaving(true);
+    
+    // Show immediate feedback
+    toast({
+      title: "Saving attendance...",
+      description: `${presentCount} present, ${absentCount} absent`,
+    });
 
     const records: AttendanceInput[] = students.map((s) => ({
       student_id: s.student.id,
@@ -107,8 +113,8 @@ export function AttendanceForm({ batch, date, onBack }: AttendanceFormProps) {
     } else {
       toast({
         variant: "default",
-        title: "Attendance saved",
-        description: `Attendance for ${batch.name} has been saved successfully.`,
+        title: "✓ Attendance saved",
+        description: `${batch.name}: ${presentCount} present, ${absentCount} absent`,
       });
       setHasExisting(true);
     }

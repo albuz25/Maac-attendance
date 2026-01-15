@@ -79,6 +79,14 @@ export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormPro
       faculty_id: facultyId || null,
     };
 
+    // Optimistic: Close dialog immediately for better UX
+    onOpenChange(false);
+    
+    toast({
+      title: isEditing ? "Updating batch..." : "Creating batch...",
+      description: "Please wait...",
+    });
+
     try {
       const result = isEditing
         ? await updateBatch(batch.id, input)
@@ -90,6 +98,7 @@ export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormPro
           title: "Error",
           description: result.error,
         });
+        setIsLoading(false);
         return;
       }
 
@@ -98,7 +107,6 @@ export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormPro
         description: `${name} has been ${isEditing ? "updated" : "created"} successfully.`,
       });
 
-      onOpenChange(false);
       onSuccess?.();
     } catch (error) {
       toast({

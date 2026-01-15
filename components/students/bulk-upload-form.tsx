@@ -152,14 +152,15 @@ export function BulkUploadForm({
             title: "Students added",
             description: `Successfully added ${result.data.created} student(s).`,
           });
+          
+          // Close immediately and refresh data
+          onOpenChange(false);
+          onSuccess?.();
         }
         
-        if (result.data.failed.length === 0) {
-          // All succeeded - close dialog after brief delay
-          setTimeout(() => {
-            onOpenChange(false);
-            onSuccess?.();
-          }, 1500);
+        if (result.data.failed.length > 0 && result.data.created === 0) {
+          // Only show results if all failed
+          setResults(result.data);
         }
       }
     } catch (error) {

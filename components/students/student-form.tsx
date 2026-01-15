@@ -83,6 +83,14 @@ export function StudentForm({
       batch_id: batchId && batchId !== "none" ? batchId : null,
     };
 
+    // Optimistic: Close dialog immediately for better UX
+    onOpenChange(false);
+    
+    toast({
+      title: isEditing ? "Updating student..." : "Adding student...",
+      description: "Please wait...",
+    });
+
     try {
       const result = isEditing
         ? await updateStudent(student.id, input)
@@ -94,6 +102,7 @@ export function StudentForm({
           title: "Error",
           description: result.error,
         });
+        setIsLoading(false);
         return;
       }
 
@@ -102,7 +111,6 @@ export function StudentForm({
         description: `${name} has been ${isEditing ? "updated" : "added"} successfully.`,
       });
 
-      onOpenChange(false);
       onSuccess?.();
     } catch (error) {
       toast({
