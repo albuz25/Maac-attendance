@@ -94,24 +94,10 @@ export default function BatchesPage() {
     setDeleteDialogOpen(false);
     setBatchToDelete(null);
 
-    // Optimistic update: remove batch from cache immediately
-    mutate(
-      "batches",
-      batches.filter((b) => b.id !== batchId),
-      false // Don't revalidate yet
-    );
-
-    toast({
-      title: "Deleting batch...",
-      description: `${batchName} is being deleted.`,
-    });
-
     // Perform actual delete
     const { error } = await deleteBatch(batchId);
     
     if (error) {
-      // Revert on error - refetch data
-      mutate("batches");
       toast({
         variant: "destructive",
         title: "Error",
@@ -122,9 +108,10 @@ export default function BatchesPage() {
         title: "Batch deleted",
         description: `${batchName} has been deleted.`,
       });
-      // Revalidate to ensure consistency
-      mutate("batches");
     }
+    
+    // Always revalidate
+    await mutate("batches");
   };
 
   const handleFormClose = (open: boolean) => {
