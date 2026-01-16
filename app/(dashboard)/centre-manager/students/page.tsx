@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { TableSkeleton } from "@/components/shared/loading-state";
@@ -39,9 +39,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { getStudents, deleteStudent } from "@/lib/actions/students";
-import { getBatches } from "@/lib/actions/batches";
-import { Student, Batch } from "@/lib/types";
+import { deleteStudent } from "@/lib/actions/students";
+import { useStudents, useBatches, mutate } from "@/lib/hooks/use-data";
+import { Student } from "@/lib/types";
 import {
   Plus,
   Search,
@@ -54,10 +54,10 @@ import {
 } from "lucide-react";
 
 export default function StudentsPage() {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Use SWR for data fetching with caching
+  const { data: students = [], isLoading: studentsLoading, error: studentsError } = useStudents();
+  const { data: batches = [], isLoading: batchesLoading } = useBatches();
+  
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedBatchFilter, setSelectedBatchFilter] = useState<string>("all");
   const [formOpen, setFormOpen] = useState(false);
@@ -67,36 +67,27 @@ export default function StudentsPage() {
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
   const { toast } = useToast();
 
-  const loadData = async () => {
-    setIsLoading(true);
-    const [studentsResult, batchesResult] = await Promise.all([
-      getStudents(),
-      getBatches(),
-    ]);
+  const isLoading = studentsLoading || batchesLoading;
 
-    if (studentsResult.error) {
+  // Refresh data function
+  const refreshData = () => {
+    mutate(["students", undefined]);
+    mutate("batches");
+  };
+
+  // Show error toast if loading failed
+  useEffect(() => {
+    if (studentsError) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: studentsResult.error,
+        description: "Failed to load students",
       });
-    } else if (studentsResult.data) {
-      setStudents(studentsResult.data);
-      setFilteredStudents(studentsResult.data);
     }
+  }, [studentsError, toast]);
 
-    if (batchesResult.data) {
-      setBatches(batchesResult.data);
-    }
-
-    setIsLoading(false);
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
+  // Memoized filtered students for better performance
+  const filteredStudents = useMemo(() => {
     let filtered = students;
 
     // Filter by batch
@@ -115,7 +106,7 @@ export default function StudentsPage() {
       );
     }
 
-    setFilteredStudents(filtered);
+    return filtered;
   }, [searchQuery, selectedBatchFilter, students]);
 
   const handleEdit = (student: Student) => {
@@ -138,7 +129,7 @@ export default function StudentsPage() {
         title: "Student removed",
         description: `${studentToDelete.name} has been removed.`,
       });
-      loadData();
+      refreshData();
     }
     setDeleteDialogOpen(false);
     setStudentToDelete(null);
@@ -314,13 +305,13 @@ export default function StudentsPage() {
         open={formOpen}
         onOpenChange={handleFormClose}
         student={selectedStudent}
-        onSuccess={loadData}
+        onSuccess={refreshData}
       />
 
       <BulkUploadForm
         open={bulkFormOpen}
         onOpenChange={setBulkFormOpen}
-        onSuccess={loadData}
+        onSuccess={refreshData}
       />
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

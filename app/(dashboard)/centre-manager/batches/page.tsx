@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -32,7 +32,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { getBatches, deleteBatch } from "@/lib/actions/batches";
+import { deleteBatch } from "@/lib/actions/batches";
+import { useBatches, mutate } from "@/lib/hooks/use-data";
 import { Batch } from "@/lib/types";
 import {
   Plus,
@@ -48,9 +49,7 @@ import {
 
 export default function BatchesPage() {
   const router = useRouter();
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [filteredBatches, setFilteredBatches] = useState<Batch[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: batches = [], isLoading, error } = useBatches();
   const [searchQuery, setSearchQuery] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
@@ -58,33 +57,26 @@ export default function BatchesPage() {
   const [batchToDelete, setBatchToDelete] = useState<Batch | null>(null);
   const { toast } = useToast();
 
-  const loadBatches = async () => {
-    setIsLoading(true);
-    const { data, error } = await getBatches();
+  const refreshData = () => {
+    mutate("batches");
+  };
+
+  useEffect(() => {
     if (error) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error,
+        description: "Failed to load batches",
       });
-    } else if (data) {
-      setBatches(data);
-      setFilteredBatches(data);
     }
-    setIsLoading(false);
-  };
+  }, [error, toast]);
 
-  useEffect(() => {
-    loadBatches();
-  }, []);
-
-  useEffect(() => {
-    const filtered = batches.filter(
+  const filteredBatches = useMemo(() => {
+    return batches.filter(
       (batch) =>
         batch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         batch.faculty?.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
     );
-    setFilteredBatches(filtered);
   }, [searchQuery, batches]);
 
   const handleEdit = (batch: Batch) => {
@@ -107,7 +99,7 @@ export default function BatchesPage() {
         title: "Batch deleted",
         description: `${batchToDelete.name} has been deleted.`,
       });
-      loadBatches();
+      refreshData();
     }
     setDeleteDialogOpen(false);
     setBatchToDelete(null);
@@ -249,7 +241,7 @@ export default function BatchesPage() {
         open={formOpen}
         onOpenChange={handleFormClose}
         batch={selectedBatch}
-        onSuccess={loadBatches}
+        onSuccess={refreshData}
       />
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

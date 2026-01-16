@@ -11,6 +11,10 @@ const roleRoutes: Record<string, string[]> = {
   FACULTY: ["/faculty"],
 };
 
+// Cache for user roles (in-memory, per-instance)
+const roleCache = new Map<string, { role: string; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export async function middleware(request: NextRequest) {
   const { response, user, supabase } = await updateSession(request);
   const pathname = request.nextUrl.pathname;
@@ -19,14 +23,9 @@ export async function middleware(request: NextRequest) {
   if (publicRoutes.some((route) => pathname.startsWith(route))) {
     // If user is logged in and trying to access login, redirect to appropriate dashboard
     if (user && pathname === "/login") {
-      const { data: userData } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-
-      if (userData?.role) {
-        const redirectPath = getDefaultRouteForRole(userData.role);
+      const userRole = await getCachedUserRole(user.id, supabase);
+      if (userRole) {
+        const redirectPath = getDefaultRouteForRole(userRole);
         return NextResponse.redirect(new URL(redirectPath, request.url));
       }
     }
@@ -40,21 +39,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Get user role for authorization
-  const { data: userData } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  // Get user role (from cache or DB)
+  const userRole = await getCachedUserRole(user.id, supabase);
 
-  if (!userData?.role) {
+  if (!userRole) {
     // User exists in auth but not in users table - redirect to login
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
   // Check role-based access
-  const userRole = userData.role as keyof typeof roleRoutes;
-  const allowedRoutes = roleRoutes[userRole] || [];
+  const allowedRoutes = roleRoutes[userRole as keyof typeof roleRoutes] || [];
 
   // Check if user has access to the requested route
   const hasAccess = allowedRoutes.some((route) => pathname.startsWith(route));
@@ -72,6 +66,31 @@ export async function middleware(request: NextRequest) {
   }
 
   return response;
+}
+
+async function getCachedUserRole(userId: string, supabase: any): Promise<string | null> {
+  const now = Date.now();
+  const cached = roleCache.get(userId);
+  
+  // Return cached value if still valid
+  if (cached && (now - cached.timestamp) < CACHE_TTL) {
+    return cached.role;
+  }
+
+  // Fetch from database
+  const { data: userData } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", userId)
+    .single();
+
+  if (userData?.role) {
+    // Cache the result
+    roleCache.set(userId, { role: userData.role, timestamp: now });
+    return userData.role;
+  }
+
+  return null;
 }
 
 function getDefaultRouteForRole(role: string): string {
