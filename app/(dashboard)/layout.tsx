@@ -3,25 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/shared/sidebar";
 import { MobileNav } from "@/components/shared/mobile-nav";
 import { UserRole } from "@/lib/types";
-import { unstable_cache } from "next/cache";
-
-// Cache user data for 60 seconds
-const getCachedUserData = unstable_cache(
-  async (userId: string) => {
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("users")
-      .select(`
-        *,
-        center:centers(name)
-      `)
-      .eq("id", userId)
-      .single();
-    return data;
-  },
-  ["user-data"],
-  { revalidate: 60 } // Cache for 60 seconds
-);
 
 export default async function DashboardLayout({
   children,
@@ -36,8 +17,15 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  // Use cached user data
-  const userData = await getCachedUserData(user.id);
+  // Fetch user data
+  const { data: userData } = await supabase
+    .from("users")
+    .select(`
+      *,
+      center:centers(name)
+    `)
+    .eq("id", user.id)
+    .single();
 
   if (!userData) {
     redirect("/login");
