@@ -29,8 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { StudentForm } from "@/components/students/student-form";
-import { BulkUploadForm } from "@/components/students/bulk-upload-form";
+import { AssignStudentsDialog } from "@/components/batches/assign-students-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -41,17 +40,16 @@ import {
   User,
   BookOpen,
   BarChart3,
-  Plus,
-  Upload,
+  UserPlus,
   MoreHorizontal,
   Pencil,
-  Trash2,
+  UserMinus,
   GraduationCap,
   CheckCircle2,
   XCircle,
 } from "lucide-react";
 import { getBatchDetails } from "@/lib/actions/batches";
-import { deleteStudent } from "@/lib/actions/students";
+import { removeStudentFromBatch } from "@/lib/actions/students";
 import { Batch, Student } from "@/lib/types";
 
 interface StudentWithAttendance extends Student {
@@ -77,11 +75,9 @@ export default function BatchDetailPage() {
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
-  const [studentFormOpen, setStudentFormOpen] = useState(false);
-  const [bulkFormOpen, setBulkFormOpen] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const [studentToRemove, setStudentToRemove] = useState<Student | null>(null);
   const { toast } = useToast();
 
   const loadBatchDetails = async (date?: string) => {
@@ -108,15 +104,15 @@ export default function BatchDetailPage() {
     loadBatchDetails(newDate);
   };
 
-  const handleEditStudent = (student: Student) => {
-    setSelectedStudent(student);
-    setStudentFormOpen(true);
-  };
+  const handleRemoveFromBatch = async () => {
+    if (!studentToRemove) return;
 
-  const handleDeleteStudent = async () => {
-    if (!studentToDelete) return;
+    toast({
+      title: "Removing student...",
+      description: `Removing ${studentToRemove.name} from this batch`,
+    });
 
-    const { error } = await deleteStudent(studentToDelete.id);
+    const { error } = await removeStudentFromBatch(studentToRemove.id);
     if (error) {
       toast({
         variant: "destructive",
@@ -126,19 +122,12 @@ export default function BatchDetailPage() {
     } else {
       toast({
         title: "Student removed",
-        description: `${studentToDelete.name} has been removed from this batch.`,
+        description: `${studentToRemove.name} has been removed from this batch.`,
       });
       loadBatchDetails();
     }
-    setDeleteDialogOpen(false);
-    setStudentToDelete(null);
-  };
-
-  const handleStudentFormClose = (open: boolean) => {
-    setStudentFormOpen(open);
-    if (!open) {
-      setSelectedStudent(null);
-    }
+    setRemoveDialogOpen(false);
+    setStudentToRemove(null);
   };
 
   if (isLoading) {
@@ -190,16 +179,10 @@ export default function BatchDetailPage() {
             <p className="text-muted-foreground">Batch details and student management</p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setBulkFormOpen(true)}>
-            <Upload className="w-4 h-4 mr-2" />
-            Bulk Add
-          </Button>
-          <Button onClick={() => setStudentFormOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Student
-          </Button>
-        </div>
+        <Button onClick={() => setAssignDialogOpen(true)}>
+          <UserPlus className="w-4 h-4 mr-2" />
+          Assign Students
+        </Button>
       </div>
 
       {/* Batch Info Cards */}
@@ -349,18 +332,12 @@ export default function BatchDetailPage() {
               <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium">No students in this batch</h3>
               <p className="text-muted-foreground mb-4">
-                Add students to start tracking attendance
+                Assign students from the student list to start tracking attendance
               </p>
-              <div className="flex gap-2 justify-center">
-                <Button variant="outline" onClick={() => setBulkFormOpen(true)}>
-                  <Upload className="w-4 h-4 mr-2" />
-                  Bulk Add
-                </Button>
-                <Button onClick={() => setStudentFormOpen(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Student
-                </Button>
-              </div>
+              <Button onClick={() => setAssignDialogOpen(true)}>
+                <UserPlus className="w-4 h-4 mr-2" />
+                Assign Students
+              </Button>
             </div>
           ) : (
             <Table>
@@ -412,19 +389,15 @@ export default function BatchDetailPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleEditStudent(student)}>
-                            <Pencil className="w-4 h-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => {
-                              setStudentToDelete(student);
-                              setDeleteDialogOpen(true);
+                              setStudentToRemove(student);
+                              setRemoveDialogOpen(true);
                             }}
                           >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Remove
+                            <UserMinus className="w-4 h-4 mr-2" />
+                            Remove from Batch
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -437,39 +410,32 @@ export default function BatchDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Student Form Dialog */}
-      <StudentForm
-        open={studentFormOpen}
-        onOpenChange={handleStudentFormClose}
-        student={selectedStudent}
-        defaultBatchId={batchId}
+      {/* Assign Students Dialog */}
+      <AssignStudentsDialog
+        open={assignDialogOpen}
+        onOpenChange={setAssignDialogOpen}
+        batchId={batchId}
+        batchName={batch.name}
+        existingStudentIds={batch.students?.map(s => s.id) || []}
         onSuccess={loadBatchDetails}
       />
 
-      {/* Bulk Upload Form */}
-      <BulkUploadForm
-        open={bulkFormOpen}
-        onOpenChange={setBulkFormOpen}
-        defaultBatchId={batchId}
-        onSuccess={loadBatchDetails}
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      {/* Remove from Batch Confirmation Dialog */}
+      <Dialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove Student</DialogTitle>
+            <DialogTitle>Remove from Batch</DialogTitle>
             <DialogDescription>
-              Are you sure you want to remove "{studentToDelete?.name}" from this
-              batch? This will also delete all attendance records for this student.
+              Are you sure you want to remove "{studentToRemove?.name}" from this
+              batch? The student will still be in your student list and can be assigned to another batch.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setRemoveDialogOpen(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteStudent}>
-              Remove
+            <Button variant="destructive" onClick={handleRemoveFromBatch}>
+              Remove from Batch
             </Button>
           </DialogFooter>
         </DialogContent>

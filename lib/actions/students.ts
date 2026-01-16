@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { CreateStudentInput, Student, BulkStudentInput } from "@/lib/types";
+import { CreateStudentInput, Student, BulkStudentInput, CsvStudentInput } from "@/lib/types";
 
 export async function getStudents(batchId?: string): Promise<{ data: Student[] | null; error: string | null }> {
   const supabase = await createClient();
@@ -66,18 +66,34 @@ export async function createStudent(
     .eq("id", user.user.id)
     .single();
 
-  if (!userData || !userData.center_id) {
-    return { data: null, error: "User center not found" };
+  if (!userData) {
+    return { data: null, error: "User not found" };
   }
 
   if (userData.role !== "ADMIN" && userData.role !== "CENTRE_MANAGER") {
     return { data: null, error: "Not authorized" };
   }
 
+  // Determine center_id based on role
+  let centerId: string;
+  if (userData.role === "ADMIN") {
+    // Admin must provide center_id or it's an error
+    if (!input.center_id) {
+      return { data: null, error: "Center must be specified" };
+    }
+    centerId = input.center_id;
+  } else {
+    // Centre Manager uses their own center
+    if (!userData.center_id) {
+      return { data: null, error: "User center not found" };
+    }
+    centerId = userData.center_id;
+  }
+
   const insertData: any = {
     name: input.name,
     roll_number: input.roll_number,
-    center_id: userData.center_id,
+    center_id: centerId,
   };
 
   // Only add batch_id if it's provided
@@ -100,6 +116,7 @@ export async function createStudent(
 
   revalidatePath("/centre-manager/students");
   revalidatePath("/centre-manager/batches");
+  revalidatePath("/admin/students");
   return { data, error: null };
 }
 
@@ -198,8 +215,117 @@ async function generateRollNumber(
   return `${prefix}-${year}-${nextNumber.toString().padStart(3, "0")}`;
 }
 
+export async function searchStudents(
+  query: string
+): Promise<{ data: Student[] | null; error: string | null }> {
+  const supabase = await createClient();
+
+  const { data: user } = await supabase.auth.getUser();
+  if (!user.user) {
+    return { data: null, error: "Not authenticated" };
+  }
+
+  const { data: userData } = await supabase
+    .from("users")
+    .select("center_id, role")
+    .eq("id", user.user.id)
+    .single();
+
+  if (!userData) {
+    return { data: null, error: "User not found" };
+  }
+
+  // Search by name or roll number
+  let searchQuery = supabase
+    .from("students")
+    .select("*")
+    .or(`name.ilike.%${query}%,roll_number.ilike.%${query}%`)
+    .order("name", { ascending: true })
+    .limit(10);
+
+  // Filter by center for non-admin users
+  if (userData.role !== "ADMIN" && userData.center_id) {
+    searchQuery = searchQuery.eq("center_id", userData.center_id);
+  }
+
+  const { data, error } = await searchQuery;
+
+  if (error) {
+    return { data: null, error: error.message };
+  }
+
+  return { data, error: null };
+}
+
+export async function assignStudentsToBatch(
+  studentIds: string[],
+  batchId: string
+): Promise<{ data: { assigned: number } | null; error: string | null }> {
+  const supabase = await createClient();
+
+  const { data: user } = await supabase.auth.getUser();
+  if (!user.user) {
+    return { data: null, error: "Not authenticated" };
+  }
+
+  const { data: userData } = await supabase
+    .from("users")
+    .select("center_id, role")
+    .eq("id", user.user.id)
+    .single();
+
+  if (!userData) {
+    return { data: null, error: "User not found" };
+  }
+
+  if (userData.role !== "ADMIN" && userData.role !== "CENTRE_MANAGER") {
+    return { data: null, error: "Not authorized" };
+  }
+
+  // Update students to assign them to the batch
+  const { error } = await supabase
+    .from("students")
+    .update({ batch_id: batchId })
+    .in("id", studentIds);
+
+  if (error) {
+    return { data: null, error: error.message };
+  }
+
+  revalidatePath("/centre-manager/students");
+  revalidatePath("/centre-manager/batches");
+  
+  return { data: { assigned: studentIds.length }, error: null };
+}
+
+export async function removeStudentFromBatch(
+  studentId: string
+): Promise<{ success: boolean; error: string | null }> {
+  const supabase = await createClient();
+
+  const { data: user } = await supabase.auth.getUser();
+  if (!user.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const { error } = await supabase
+    .from("students")
+    .update({ batch_id: null })
+    .eq("id", studentId);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/centre-manager/students");
+  revalidatePath("/centre-manager/batches");
+  
+  return { success: true, error: null };
+}
+
 export async function createStudentsBulk(
-  students: BulkStudentInput[]
+  students: BulkStudentInput[],
+  centerId?: string // Optional center ID for Admin
 ): Promise<{ data: { created: number; failed: string[] } | null; error: string | null }> {
   const supabase = await createClient();
 
@@ -214,12 +340,26 @@ export async function createStudentsBulk(
     .eq("id", user.user.id)
     .single();
 
-  if (!userData || !userData.center_id) {
-    return { data: null, error: "User center not found" };
+  if (!userData) {
+    return { data: null, error: "User not found" };
   }
 
   if (userData.role !== "ADMIN" && userData.role !== "CENTRE_MANAGER") {
     return { data: null, error: "Not authorized" };
+  }
+
+  // Determine center_id based on role
+  let targetCenterId: string;
+  if (userData.role === "ADMIN") {
+    if (!centerId) {
+      return { data: null, error: "Center must be specified" };
+    }
+    targetCenterId = centerId;
+  } else {
+    if (!userData.center_id) {
+      return { data: null, error: "User center not found" };
+    }
+    targetCenterId = userData.center_id;
   }
 
   const failed: string[] = [];
@@ -233,12 +373,12 @@ export async function createStudentsBulk(
 
     try {
       // Generate roll number for each student
-      const rollNumber = await generateRollNumber(supabase, userData.center_id);
+      const rollNumber = await generateRollNumber(supabase, targetCenterId);
 
       const insertData: any = {
         name: student.name.trim(),
         roll_number: rollNumber,
-        center_id: userData.center_id,
+        center_id: targetCenterId,
       };
 
       if (student.batch_id) {
@@ -249,6 +389,85 @@ export async function createStudentsBulk(
 
       if (error) {
         failed.push(`${student.name}: ${error.message}`);
+      } else {
+        created++;
+      }
+    } catch (err: any) {
+      failed.push(`${student.name}: ${err.message}`);
+    }
+  }
+
+  revalidatePath("/centre-manager/students");
+  revalidatePath("/centre-manager/batches");
+  revalidatePath("/admin/students");
+
+  return {
+    data: { created, failed },
+    error: null,
+  };
+}
+
+export async function createStudentsFromCsv(
+  students: CsvStudentInput[]
+): Promise<{ data: { created: number; failed: string[] } | null; error: string | null }> {
+  const supabase = await createClient();
+
+  const { data: user } = await supabase.auth.getUser();
+  if (!user.user) {
+    return { data: null, error: "Not authenticated" };
+  }
+
+  const { data: userData } = await supabase
+    .from("users")
+    .select("center_id, role")
+    .eq("id", user.user.id)
+    .single();
+
+  if (!userData) {
+    return { data: null, error: "User not found" };
+  }
+
+  if (userData.role !== "ADMIN" && userData.role !== "CENTRE_MANAGER") {
+    return { data: null, error: "Not authorized" };
+  }
+
+  if (!userData.center_id) {
+    return { data: null, error: "User center not found" };
+  }
+
+  const failed: string[] = [];
+  let created = 0;
+
+  for (const student of students) {
+    if (!student.name.trim()) {
+      failed.push(`Row with roll number ${student.roll_number}: Empty name`);
+      continue;
+    }
+
+    if (!student.roll_number.trim()) {
+      failed.push(`${student.name}: Empty roll number`);
+      continue;
+    }
+
+    try {
+      const insertData: any = {
+        name: student.name.trim(),
+        roll_number: student.roll_number.trim(),
+        center_id: userData.center_id,
+      };
+
+      if (student.batch_id) {
+        insertData.batch_id = student.batch_id;
+      }
+
+      const { error } = await supabase.from("students").insert(insertData);
+
+      if (error) {
+        if (error.code === "23505") {
+          failed.push(`${student.name}: Roll number ${student.roll_number} already exists`);
+        } else {
+          failed.push(`${student.name}: ${error.message}`);
+        }
       } else {
         created++;
       }

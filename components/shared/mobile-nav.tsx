@@ -40,6 +40,7 @@ const facultyNavItems: NavItem[] = [
 const adminNavItems: NavItem[] = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { title: "Centers", href: "/admin/centers", icon: GraduationCap },
+  { title: "Students", href: "/admin/students", icon: BookOpen },
   { title: "Users", href: "/admin/users", icon: Users },
   { title: "Reports", href: "/admin/reports", icon: FileText },
   { title: "Settings", href: "/admin/settings", icon: Settings },

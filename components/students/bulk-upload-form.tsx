@@ -22,10 +22,10 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
-import { Batch, BulkStudentInput } from "@/lib/types";
-import { createStudentsBulk } from "@/lib/actions/students";
+import { Batch, BulkStudentInput, CsvStudentInput } from "@/lib/types";
+import { createStudentsBulk, createStudentsFromCsv } from "@/lib/actions/students";
 import { getBatches } from "@/lib/actions/batches";
-import { Loader2, Plus, Trash2, Upload, FileText, AlertCircle } from "lucide-react";
+import { Loader2, Plus, Trash2, Upload, FileText, AlertCircle, FileSpreadsheet } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface BulkUploadFormProps {
@@ -59,6 +59,11 @@ export function BulkUploadForm({
   // CSV/Paste state
   const [pastedNames, setPastedNames] = useState("");
   
+  // CSV file state
+  const [csvData, setCsvData] = useState<CsvStudentInput[]>([]);
+  const [csvFileName, setCsvFileName] = useState("");
+  const [csvError, setCsvError] = useState("");
+  
   // Results state
   const [results, setResults] = useState<{
     created: number;
@@ -79,6 +84,9 @@ export function BulkUploadForm({
       // Reset form
       setEntries([{ id: crypto.randomUUID(), name: "" }]);
       setPastedNames("");
+      setCsvData([]);
+      setCsvFileName("");
+      setCsvError("");
       setResults(null);
       setBatchId(defaultBatchId || "");
     }
@@ -103,37 +111,123 @@ export function BulkUploadForm({
       return entries
         .map((e) => e.name.trim())
         .filter((name) => name.length > 0);
-    } else {
+    } else if (activeTab === "paste") {
       // Parse from pasted text (one name per line, or comma-separated)
       return pastedNames
         .split(/[\n,]/)
         .map((name) => name.trim())
         .filter((name) => name.length > 0);
     }
+    return [];
+  };
+
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCsvError("");
+    setCsvFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter((line) => line.trim());
+        
+        // Skip header row if it looks like a header
+        let startIndex = 0;
+        const firstLine = lines[0]?.toLowerCase() || "";
+        if (firstLine.includes("roll") || firstLine.includes("name") || firstLine.includes("no")) {
+          startIndex = 1;
+        }
+
+        const parsedData: CsvStudentInput[] = [];
+        const errors: string[] = [];
+
+        for (let i = startIndex; i < lines.length; i++) {
+          const line = lines[i];
+          // Handle both comma and tab delimited
+          const parts = line.includes(",") ? line.split(",") : line.split("\t");
+          
+          if (parts.length >= 2) {
+            const rollNumber = parts[0].trim().replace(/^["']|["']$/g, "");
+            const name = parts[1].trim().replace(/^["']|["']$/g, "");
+            
+            if (rollNumber && name) {
+              parsedData.push({
+                roll_number: rollNumber,
+                name: name,
+                batch_id: batchId && batchId !== "none" ? batchId : null,
+              });
+            } else if (rollNumber || name) {
+              errors.push(`Row ${i + 1}: Missing ${!rollNumber ? "roll number" : "name"}`);
+            }
+          } else if (line.trim()) {
+            errors.push(`Row ${i + 1}: Invalid format (expected: RollNo, Name)`);
+          }
+        }
+
+        if (parsedData.length === 0) {
+          setCsvError("No valid data found in CSV. Expected format: Roll Number, Name");
+        } else {
+          setCsvData(parsedData);
+          if (errors.length > 0) {
+            setCsvError(`Warning: ${errors.length} row(s) skipped due to invalid format`);
+          }
+        }
+      } catch (err) {
+        setCsvError("Failed to parse CSV file. Please check the format.");
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleSubmit = async () => {
     setIsLoading(true);
     setResults(null);
 
-    const names = parseNames();
-    if (names.length === 0) {
-      toast({
-        variant: "destructive",
-        title: "No students to add",
-        description: "Please enter at least one student name.",
-      });
-      setIsLoading(false);
-      return;
-    }
-
-    const students: BulkStudentInput[] = names.map((name) => ({
-      name,
-      batch_id: batchId && batchId !== "none" ? batchId : null,
-    }));
-
     try {
-      const result = await createStudentsBulk(students);
+      let result;
+
+      if (activeTab === "csv") {
+        // CSV upload with roll numbers
+        if (csvData.length === 0) {
+          toast({
+            variant: "destructive",
+            title: "No students to add",
+            description: "Please upload a valid CSV file.",
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        // Update batch_id if selected
+        const studentsWithBatch = csvData.map((s) => ({
+          ...s,
+          batch_id: batchId && batchId !== "none" ? batchId : null,
+        }));
+
+        result = await createStudentsFromCsv(studentsWithBatch);
+      } else {
+        // Manual or paste - auto-generate roll numbers
+        const names = parseNames();
+        if (names.length === 0) {
+          toast({
+            variant: "destructive",
+            title: "No students to add",
+            description: "Please enter at least one student name.",
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        const students: BulkStudentInput[] = names.map((name) => ({
+          name,
+          batch_id: batchId && batchId !== "none" ? batchId : null,
+        }));
+
+        result = await createStudentsBulk(students);
+      }
 
       if (result.error) {
         toast({
@@ -174,7 +268,7 @@ export function BulkUploadForm({
     }
   };
 
-  const namesCount = parseNames().length;
+  const namesCount = activeTab === "csv" ? csvData.length : parseNames().length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -207,14 +301,18 @@ export function BulkUploadForm({
 
           {/* Tabs for different input methods */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="manual" disabled={isLoading}>
-                <Plus className="w-4 h-4 mr-2" />
-                Manual Entry
+            <TabsList className="!grid w-full grid-cols-3 h-auto">
+              <TabsTrigger value="manual" disabled={isLoading} className="flex items-center gap-2 py-2">
+                <Plus className="w-4 h-4" />
+                Manual
               </TabsTrigger>
-              <TabsTrigger value="paste" disabled={isLoading}>
-                <FileText className="w-4 h-4 mr-2" />
-                Paste Names
+              <TabsTrigger value="paste" disabled={isLoading} className="flex items-center gap-2 py-2">
+                <FileText className="w-4 h-4" />
+                Paste
+              </TabsTrigger>
+              <TabsTrigger value="csv" disabled={isLoading} className="flex items-center gap-2 py-2">
+                <FileSpreadsheet className="w-4 h-4" />
+                CSV
               </TabsTrigger>
             </TabsList>
 
@@ -263,7 +361,7 @@ export function BulkUploadForm({
 
             <TabsContent value="paste" className="mt-4 space-y-3">
               <p className="text-sm text-muted-foreground">
-                Paste student names (one per line, or comma-separated).
+                Paste student names (one per line, or comma-separated). Roll numbers will be auto-generated.
               </p>
               
               <Textarea
@@ -279,6 +377,84 @@ export function BulkUploadForm({
                   Detected {parseNames().length} student name(s)
                 </p>
               )}
+            </TabsContent>
+
+            <TabsContent value="csv" className="mt-4 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Upload a CSV file with columns: <strong>Roll Number</strong>, <strong>Name</strong>
+              </p>
+              
+              <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                <input
+                  type="file"
+                  accept=".csv,.txt"
+                  onChange={handleCsvUpload}
+                  disabled={isLoading}
+                  className="hidden"
+                  id="csv-upload"
+                />
+                <label
+                  htmlFor="csv-upload"
+                  className="cursor-pointer flex flex-col items-center gap-2"
+                >
+                  <FileSpreadsheet className="w-10 h-10 text-muted-foreground" />
+                  <span className="text-sm font-medium">
+                    {csvFileName || "Click to upload CSV file"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    CSV format: Roll Number, Name
+                  </span>
+                </label>
+              </div>
+
+              {csvError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{csvError}</AlertDescription>
+                </Alert>
+              )}
+
+              {csvData.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-green-600">
+                    ✓ {csvData.length} student(s) ready to import
+                  </p>
+                  <div className="max-h-[150px] overflow-y-auto border rounded-md">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted sticky top-0">
+                        <tr>
+                          <th className="text-left p-2 font-medium">Roll No.</th>
+                          <th className="text-left p-2 font-medium">Name</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvData.slice(0, 10).map((student, i) => (
+                          <tr key={i} className="border-t">
+                            <td className="p-2 font-mono">{student.roll_number}</td>
+                            <td className="p-2">{student.name}</td>
+                          </tr>
+                        ))}
+                        {csvData.length > 10 && (
+                          <tr className="border-t">
+                            <td colSpan={2} className="p-2 text-center text-muted-foreground">
+                              ... and {csvData.length - 10} more
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="p-3 bg-muted/50 rounded-lg text-xs text-muted-foreground">
+                <p className="font-medium mb-1">CSV Format Example:</p>
+                <code className="block whitespace-pre">
+                  Roll No., Name{"\n"}
+                  GN-2026-001, John Doe{"\n"}
+                  GN-2026-002, Jane Smith
+                </code>
+              </div>
             </TabsContent>
           </Tabs>
 

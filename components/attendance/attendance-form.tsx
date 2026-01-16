@@ -59,7 +59,7 @@ export function AttendanceForm({ batch, date, onBack }: AttendanceFormProps) {
         const existing = existingAttendance.find((a) => a.student_id === student.id);
         return {
           student,
-          status: existing ? existing.status : "Present", // Default to Present
+          status: existing ? existing.status : "Absent", // Default to Absent
         };
       });
 

@@ -73,10 +73,19 @@ export interface CreateStudentInput {
   name: string;
   roll_number: string;
   batch_id?: string | null;
+  center_id?: string; // Optional for Admin to specify center
 }
 
 // Bulk student input (without roll_number, will be auto-generated)
 export interface BulkStudentInput {
+  name: string;
+  batch_id?: string | null;
+  center_id?: string; // Optional for Admin to specify center
+}
+
+// CSV bulk student input (with roll_number from CSV)
+export interface CsvStudentInput {
+  roll_number: string;
   name: string;
   batch_id?: string | null;
 }
