@@ -87,8 +87,31 @@ export default function BatchesPage() {
   const handleDelete = async () => {
     if (!batchToDelete) return;
 
-    const { error } = await deleteBatch(batchToDelete.id);
+    const batchName = batchToDelete.name;
+    const batchId = batchToDelete.id;
+    
+    // Close dialog immediately
+    setDeleteDialogOpen(false);
+    setBatchToDelete(null);
+
+    // Optimistic update: remove batch from cache immediately
+    mutate(
+      "batches",
+      batches.filter((b) => b.id !== batchId),
+      false // Don't revalidate yet
+    );
+
+    toast({
+      title: "Deleting batch...",
+      description: `${batchName} is being deleted.`,
+    });
+
+    // Perform actual delete
+    const { error } = await deleteBatch(batchId);
+    
     if (error) {
+      // Revert on error - refetch data
+      mutate("batches");
       toast({
         variant: "destructive",
         title: "Error",
@@ -97,12 +120,11 @@ export default function BatchesPage() {
     } else {
       toast({
         title: "Batch deleted",
-        description: `${batchToDelete.name} has been deleted.`,
+        description: `${batchName} has been deleted.`,
       });
-      refreshData();
+      // Revalidate to ensure consistency
+      mutate("batches");
     }
-    setDeleteDialogOpen(false);
-    setBatchToDelete(null);
   };
 
   const handleFormClose = (open: boolean) => {

@@ -117,8 +117,31 @@ export default function StudentsPage() {
   const handleDelete = async () => {
     if (!studentToDelete) return;
 
-    const { error } = await deleteStudent(studentToDelete.id);
+    const studentName = studentToDelete.name;
+    const studentId = studentToDelete.id;
+
+    // Close dialog immediately
+    setDeleteDialogOpen(false);
+    setStudentToDelete(null);
+
+    // Optimistic update: remove student from cache immediately
+    mutate(
+      ["students", undefined],
+      students.filter((s) => s.id !== studentId),
+      false // Don't revalidate yet
+    );
+
+    toast({
+      title: "Removing student...",
+      description: `${studentName} is being removed.`,
+    });
+
+    // Perform actual delete
+    const { error } = await deleteStudent(studentId);
+    
     if (error) {
+      // Revert on error - refetch data
+      mutate(["students", undefined]);
       toast({
         variant: "destructive",
         title: "Error",
@@ -127,12 +150,12 @@ export default function StudentsPage() {
     } else {
       toast({
         title: "Student removed",
-        description: `${studentToDelete.name} has been removed.`,
+        description: `${studentName} has been removed.`,
       });
-      refreshData();
+      // Revalidate to ensure consistency
+      mutate(["students", undefined]);
+      mutate("batches"); // Update batch student counts
     }
-    setDeleteDialogOpen(false);
-    setStudentToDelete(null);
   };
 
   const handleFormClose = (open: boolean) => {
