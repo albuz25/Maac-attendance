@@ -124,10 +124,24 @@ export default function StudentsPage() {
     setDeleteDialogOpen(false);
     setStudentToDelete(null);
 
+    // Optimistic update: remove student from cache immediately
+    mutate(
+      ["students", undefined],
+      students.filter((s) => s.id !== studentId),
+      false // Don't revalidate yet
+    );
+
+    toast({
+      title: "Removing student...",
+      description: `${studentName} is being removed.`,
+    });
+
     // Perform actual delete
     const { error } = await deleteStudent(studentId);
     
     if (error) {
+      // Revert on error - refetch data
+      mutate(["students", undefined]);
       toast({
         variant: "destructive",
         title: "Error",
@@ -138,11 +152,10 @@ export default function StudentsPage() {
         title: "Student removed",
         description: `${studentName} has been removed.`,
       });
+      // Revalidate to ensure consistency
+      mutate(["students", undefined]);
+      mutate("batches"); // Update batch student counts
     }
-    
-    // Always revalidate
-    await mutate(["students", undefined]);
-    await mutate("batches");
   };
 
   const handleFormClose = (open: boolean) => {

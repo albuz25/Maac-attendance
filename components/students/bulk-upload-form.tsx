@@ -22,10 +22,10 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
-import { Batch, BulkStudentInput, CsvStudentInput } from "@/lib/types";
+import { Batch, BulkStudentInput, CsvStudentInput, Student } from "@/lib/types";
 import { createStudentsBulk, createStudentsFromCsv } from "@/lib/actions/students";
 import { getBatches } from "@/lib/actions/batches";
-import { mutate } from "swr";
+import { useStudents, mutate } from "@/lib/hooks/use-data";
 import { Loader2, Plus, Trash2, Upload, FileText, AlertCircle, FileSpreadsheet } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -72,6 +72,7 @@ export function BulkUploadForm({
   } | null>(null);
   
   const { toast } = useToast();
+  const { data: existingStudents = [] } = useStudents();
 
   useEffect(() => {
     async function loadBatches() {
@@ -184,9 +185,11 @@ export function BulkUploadForm({
   };
 
   const handleSubmit = async () => {
-    setIsLoading(true);
     setResults(null);
 
+    // Create optimistic students
+    const selectedBatch = batches.find(b => b.id === batchId);
+    let optimisticStudents: Student[] = [];
     let studentCount = 0;
 
     if (activeTab === "csv") {
@@ -196,10 +199,18 @@ export function BulkUploadForm({
           title: "No students to add",
           description: "Please upload a valid CSV file.",
         });
-        setIsLoading(false);
         return;
       }
       studentCount = csvData.length;
+      optimisticStudents = csvData.map((s, i) => ({
+        id: `temp-${Date.now()}-${i}`,
+        name: s.name,
+        roll_number: s.roll_number,
+        batch_id: batchId && batchId !== "none" ? batchId : null,
+        center_id: "",
+        created_at: new Date().toISOString(),
+        batch: selectedBatch ? { id: selectedBatch.id, name: selectedBatch.name, days: selectedBatch.days, timing: selectedBatch.timing } as any : undefined,
+      }));
     } else {
       const names = parseNames();
       if (names.length === 0) {
@@ -208,11 +219,34 @@ export function BulkUploadForm({
           title: "No students to add",
           description: "Please enter at least one student name.",
         });
-        setIsLoading(false);
         return;
       }
       studentCount = names.length;
+      optimisticStudents = names.map((name, i) => ({
+        id: `temp-${Date.now()}-${i}`,
+        name,
+        roll_number: `TEMP-${i + 1}`,
+        batch_id: batchId && batchId !== "none" ? batchId : null,
+        center_id: "",
+        created_at: new Date().toISOString(),
+        batch: selectedBatch ? { id: selectedBatch.id, name: selectedBatch.name, days: selectedBatch.days, timing: selectedBatch.timing } as any : undefined,
+      }));
     }
+
+    // Close dialog immediately
+    onOpenChange(false);
+
+    // Optimistic update
+    mutate(
+      ["students", undefined],
+      [...optimisticStudents, ...existingStudents],
+      false
+    );
+
+    toast({
+      title: "Adding students...",
+      description: `Adding ${studentCount} student(s)...`,
+    });
 
     try {
       let result;
@@ -233,17 +267,15 @@ export function BulkUploadForm({
       }
 
       if (result.error) {
+        // Revert on error
+        mutate(["students", undefined]);
         toast({
           variant: "destructive",
           title: "Error",
           description: result.error,
         });
-        setIsLoading(false);
         return;
       }
-
-      // Close dialog
-      onOpenChange(false);
 
       if (result.data) {
         if (result.data.created > 0) {
@@ -262,18 +294,18 @@ export function BulkUploadForm({
         }
       }
 
-      // Revalidate data immediately
-      await mutate(["students", undefined]);
-      await mutate("batches");
+      // Revalidate to get real data
+      mutate(["students", undefined]);
+      mutate("batches"); // Update batch counts
       onSuccess?.();
     } catch (error) {
+      // Revert on error
+      mutate(["students", undefined]);
       toast({
         variant: "destructive",
         title: "Error",
         description: "An unexpected error occurred.",
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
