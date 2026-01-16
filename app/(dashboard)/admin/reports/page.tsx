@@ -25,7 +25,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
 import { getCenters } from "@/lib/actions/centers";
-import { getCentreWiseReport, getFacultyWiseReport } from "@/lib/actions/reports";
+import { getCentreWiseReport, getFacultyWiseReport, getDaysheetData } from "@/lib/actions/reports";
+import { Daysheet } from "@/components/reports/daysheet";
 import { Center } from "@/lib/types";
 import {
   Building2,
@@ -40,10 +41,17 @@ import {
   User,
   BookOpen,
   AlertCircle,
+  LayoutGrid,
 } from "lucide-react";
 
+interface DaysheetData {
+  batches: any[];
+  faculty: { id: string; name: string }[];
+  dayType: "MWF" | "TTS" | null;
+}
+
 export default function ReportsPage() {
-  const [activeTab, setActiveTab] = useState("centre");
+  const [activeTab, setActiveTab] = useState("daysheet");
   const [centers, setCenters] = useState<Center[]>([]);
   const [selectedCenterId, setSelectedCenterId] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState<string>(
@@ -51,6 +59,7 @@ export default function ReportsPage() {
   );
   const [centreReport, setCentreReport] = useState<any[]>([]);
   const [facultyReport, setFacultyReport] = useState<any[]>([]);
+  const [daysheetData, setDaysheetData] = useState<DaysheetData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const { toast } = useToast();
@@ -89,6 +98,13 @@ export default function ReportsPage() {
     }
   }, [selectedDate, activeTab]);
 
+  // Load daysheet when center or date changes
+  useEffect(() => {
+    if (activeTab === "daysheet" && selectedCenterId && selectedDate) {
+      loadDaysheet();
+    }
+  }, [selectedCenterId, selectedDate, activeTab]);
+
   const loadCentreReport = async () => {
     if (!selectedCenterId) return;
     setIsLoading(true);
@@ -116,6 +132,22 @@ export default function ReportsPage() {
       });
     } else if (data) {
       setFacultyReport(data);
+    }
+    setIsLoading(false);
+  };
+
+  const loadDaysheet = async () => {
+    if (!selectedCenterId) return;
+    setIsLoading(true);
+    const { data, error } = await getDaysheetData(selectedCenterId, selectedDate);
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error,
+      });
+    } else if (data) {
+      setDaysheetData(data);
     }
     setIsLoading(false);
   };
@@ -173,6 +205,10 @@ export default function ReportsPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-6">
+          <TabsTrigger value="daysheet" className="flex items-center gap-2">
+            <LayoutGrid className="h-4 w-4" />
+            Timetable / Daysheet
+          </TabsTrigger>
           <TabsTrigger value="centre" className="flex items-center gap-2">
             <Building2 className="h-4 w-4" />
             Centre-wise Reports
@@ -182,6 +218,72 @@ export default function ReportsPage() {
             Faculty-wise Reports
           </TabsTrigger>
         </TabsList>
+
+        {/* Daysheet / Timetable View */}
+        <TabsContent value="daysheet">
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="text-base">Daysheet Filters</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-4">
+                <div className="space-y-2">
+                  <Label>Select Centre</Label>
+                  <Select
+                    value={selectedCenterId}
+                    onValueChange={setSelectedCenterId}
+                  >
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Select centre" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {centers.map((center) => (
+                        <SelectItem key={center.id} value={center.id}>
+                          {center.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Select Date</Label>
+                  <Input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="w-[200px]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Day Info</Label>
+                  <div className="flex items-center gap-2 h-10">
+                    <Badge variant="outline">{getDayName(selectedDate)}</Badge>
+                    <Badge variant="secondary">{getScheduleType(selectedDate)}</Badge>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : daysheetData ? (
+            <Daysheet
+              batches={daysheetData.batches}
+              facultyList={daysheetData.faculty}
+              selectedDate={selectedDate}
+              dayType={daysheetData.dayType}
+            />
+          ) : (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                Select a center to view the timetable
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
         {/* Centre-wise Reports */}
         <TabsContent value="centre">

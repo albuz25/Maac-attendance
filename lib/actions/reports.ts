@@ -270,3 +270,144 @@ export async function getAllBatchesReport(
   return { data: batchesWithStats, error: null };
 }
 
+export async function getDaysheetData(
+  centerId: string | null,
+  date: string
+): Promise<{
+  data: {
+    batches: any[];
+    faculty: { id: string; name: string }[];
+    dayType: "MWF" | "TTS" | null;
+  } | null;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+
+  const { data: user } = await supabase.auth.getUser();
+  if (!user.user) {
+    return { data: null, error: "Not authenticated" };
+  }
+
+  // If no centerId provided, get user's center
+  let targetCenterId = centerId;
+  if (!targetCenterId) {
+    const { data: userData } = await supabase
+      .from("users")
+      .select("center_id, role")
+      .eq("id", user.user.id)
+      .single();
+    
+    if (userData?.role !== "ADMIN" && userData?.center_id) {
+      targetCenterId = userData.center_id;
+    }
+  }
+
+  // Get the day of week
+  const selectedDate = new Date(date);
+  const dayOfWeek = selectedDate.getDay();
+  
+  const isMWF = [1, 3, 5].includes(dayOfWeek);
+  const isTTS = [2, 4, 6].includes(dayOfWeek);
+
+  if (!isMWF && !isTTS) {
+    return { 
+      data: { batches: [], faculty: [], dayType: null }, 
+      error: null 
+    };
+  }
+
+  const dayType = isMWF ? "MWF" : "TTS";
+
+  // Build batch query
+  let batchQuery = supabase
+    .from("batches")
+    .select(`
+      id,
+      name,
+      days,
+      timing,
+      start_time,
+      end_time,
+      faculty_id,
+      faculty:users!batches_faculty_id_fkey(id, full_name),
+      center:centers(id, name)
+    `)
+    .eq("days", dayType)
+    .order("start_time");
+
+  // Filter by center if we have one
+  if (targetCenterId) {
+    batchQuery = batchQuery.eq("center_id", targetCenterId);
+  }
+
+  const { data: batches, error: batchError } = await batchQuery;
+
+  if (batchError) {
+    return { data: null, error: batchError.message };
+  }
+
+  // Get all faculty who have batches
+  const facultyIds = [...new Set(batches.map(b => b.faculty_id).filter(Boolean))];
+  
+  const { data: facultyData } = await supabase
+    .from("users")
+    .select("id, full_name")
+    .in("id", facultyIds.length > 0 ? facultyIds : [''])
+    .order("full_name");
+
+  const faculty = (facultyData || []).map(f => ({
+    id: f.id,
+    name: f.full_name,
+  }));
+
+  // Get stats for each batch
+  const batchesWithStats = await Promise.all(
+    batches.map(async (batch) => {
+      const { count: studentCount } = await supabase
+        .from("students")
+        .select("*", { count: "exact", head: true })
+        .eq("batch_id", batch.id);
+
+      const { count: presentCount } = await supabase
+        .from("attendance")
+        .select("*", { count: "exact", head: true })
+        .eq("batch_id", batch.id)
+        .eq("date", date)
+        .eq("status", "Present");
+
+      const { count: absentCount } = await supabase
+        .from("attendance")
+        .select("*", { count: "exact", head: true })
+        .eq("batch_id", batch.id)
+        .eq("date", date)
+        .eq("status", "Absent");
+
+      // Handle faculty - could be array or object from Supabase
+      const facultyData = Array.isArray(batch.faculty) ? batch.faculty[0] : batch.faculty;
+      
+      return {
+        id: batch.id,
+        name: batch.name,
+        start_time: batch.start_time || "10:00",
+        end_time: batch.end_time || "11:30",
+        timing: batch.timing,
+        days: batch.days,
+        faculty_id: batch.faculty_id,
+        faculty_name: facultyData?.full_name || null,
+        student_count: studentCount || 0,
+        present_count: presentCount || 0,
+        absent_count: absentCount || 0,
+      };
+    })
+  );
+
+  return {
+    data: {
+      batches: batchesWithStats,
+      faculty,
+      dayType,
+    },
+    error: null,
+  };
+}
+

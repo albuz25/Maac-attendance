@@ -28,7 +28,9 @@ export interface Batch {
   id: string;
   name: string;
   days: BatchDays;
-  timing: string;
+  timing: string; // Legacy field for display (e.g., "10:00 AM - 11:30 AM")
+  start_time: string; // HH:MM format
+  end_time: string; // HH:MM format
   faculty_id: string | null;
   center_id: string;
   created_at: string;
@@ -65,7 +67,8 @@ export interface Attendance {
 export interface CreateBatchInput {
   name: string;
   days: BatchDays;
-  timing: string;
+  start_time: string; // HH:MM format
+  end_time: string; // HH:MM format
   faculty_id: string | null;
 }
 

@@ -34,7 +34,8 @@ interface BatchFormProps {
 export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormProps) {
   const [name, setName] = useState("");
   const [days, setDays] = useState<BatchDays>("MWF");
-  const [timing, setTiming] = useState("");
+  const [startTime, setStartTime] = useState("10:00");
+  const [endTime, setEndTime] = useState("11:30");
   const [facultyId, setFacultyId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [faculty, setFaculty] = useState<any[]>([]);
@@ -46,12 +47,15 @@ export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormPro
     if (batch) {
       setName(batch.name);
       setDays(batch.days);
-      setTiming(batch.timing);
+      // Parse existing times or use defaults
+      setStartTime(batch.start_time || "10:00");
+      setEndTime(batch.end_time || "11:30");
       setFacultyId(batch.faculty_id || "");
     } else {
       setName("");
       setDays("MWF");
-      setTiming("");
+      setStartTime("10:00");
+      setEndTime("11:30");
       setFacultyId("");
     }
   }, [batch, open]);
@@ -75,7 +79,8 @@ export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormPro
     const input: CreateBatchInput = {
       name,
       days,
-      timing,
+      start_time: startTime,
+      end_time: endTime,
       faculty_id: facultyId || null,
     };
 
@@ -155,16 +160,29 @@ export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormPro
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="timing">Timing</Label>
-              <Input
-                id="timing"
-                placeholder="e.g., 10:00 AM - 12:00 PM"
-                value={timing}
-                onChange={(e) => setTiming(e.target.value)}
-                required
-                disabled={isLoading}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="startTime">Start Time</Label>
+                <Input
+                  id="startTime"
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endTime">End Time</Label>
+                <Input
+                  id="endTime"
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  required
+                  disabled={isLoading}
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="faculty">Assign Faculty</Label>

@@ -86,12 +86,24 @@ export async function createBatch(
     return { data: null, error: "Not authorized" };
   }
 
+  // Format timing string for display
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+  const timing = `${formatTime(input.start_time)} - ${formatTime(input.end_time)}`;
+
   const { data, error } = await supabase
     .from("batches")
     .insert({
       name: input.name,
       days: input.days,
-      timing: input.timing,
+      timing: timing,
+      start_time: input.start_time,
+      end_time: input.end_time,
       faculty_id: input.faculty_id,
       center_id: userData.center_id,
     })
@@ -120,9 +132,24 @@ export async function updateBatch(
     return { data: null, error: "Not authenticated" };
   }
 
+  // Build update data
+  const updateData: any = { ...input };
+
+  // If time fields are provided, generate timing string
+  if (input.start_time && input.end_time) {
+    const formatTime = (time: string) => {
+      const [hours, minutes] = time.split(':');
+      const hour = parseInt(hours);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const hour12 = hour % 12 || 12;
+      return `${hour12}:${minutes} ${ampm}`;
+    };
+    updateData.timing = `${formatTime(input.start_time)} - ${formatTime(input.end_time)}`;
+  }
+
   const { data, error } = await supabase
     .from("batches")
-    .update(input)
+    .update(updateData)
     .eq("id", id)
     .select()
     .single();

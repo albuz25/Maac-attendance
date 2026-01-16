@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -18,6 +19,8 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 import { getBatchAttendanceReport } from "@/lib/actions/attendance";
+import { getDaysheetData } from "@/lib/actions/reports";
+import { Daysheet } from "@/components/reports/daysheet";
 import { format } from "date-fns";
 import {
   BarChart3,
@@ -28,6 +31,8 @@ import {
   User,
   Calendar,
   Clock,
+  LayoutGrid,
+  FileText,
 } from "lucide-react";
 
 interface BatchDayReport {
@@ -43,24 +48,41 @@ interface BatchDayReport {
   attendance_percentage: number;
 }
 
+interface DaysheetData {
+  batches: any[];
+  faculty: { id: string; name: string }[];
+  dayType: "MWF" | "TTS" | null;
+}
+
 export default function ReportsPage() {
   const [report, setReport] = useState<BatchDayReport[]>([]);
+  const [daysheetData, setDaysheetData] = useState<DaysheetData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [activeTab, setActiveTab] = useState("daysheet");
   const { toast } = useToast();
 
   const loadData = async () => {
     setIsLoading(true);
-    const { data, error } = await getBatchAttendanceReport(selectedDate);
+    
+    // Load both reports in parallel
+    const [reportResult, daysheetResult] = await Promise.all([
+      getBatchAttendanceReport(selectedDate),
+      getDaysheetData(null, selectedDate), // null = current user's center
+    ]);
 
-    if (error) {
+    if (reportResult.error) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error,
+        description: reportResult.error,
       });
-    } else if (data) {
-      setReport(data);
+    } else if (reportResult.data) {
+      setReport(reportResult.data);
+    }
+
+    if (daysheetResult.data) {
+      setDaysheetData(daysheetResult.data);
     }
 
     setIsLoading(false);
@@ -117,8 +139,8 @@ export default function ReportsPage() {
   return (
     <div>
       <PageHeader
-        title="Daily Attendance Report"
-        description="View batch-wise attendance for any day"
+        title="Reports & Daysheet"
+        description="View attendance reports and timetable overview"
       />
 
       {/* Date Selector */}
@@ -179,7 +201,32 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {getScheduleType(selectedDate) === "Sunday" ? (
+      {/* Tabs for Daysheet and Table View */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
+        <TabsList className="!grid w-full grid-cols-2 max-w-md">
+          <TabsTrigger value="daysheet" className="flex items-center gap-2">
+            <LayoutGrid className="w-4 h-4" />
+            Timetable View
+          </TabsTrigger>
+          <TabsTrigger value="table" className="flex items-center gap-2">
+            <FileText className="w-4 h-4" />
+            Table View
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="daysheet" className="mt-4">
+          {daysheetData && (
+            <Daysheet
+              batches={daysheetData.batches}
+              facultyList={daysheetData.faculty}
+              selectedDate={selectedDate}
+              dayType={daysheetData.dayType}
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="table" className="mt-4">
+          {getScheduleType(selectedDate) === "Sunday" ? (
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="flex items-center gap-4 py-6">
             <Calendar className="w-8 h-8 text-amber-600" />
@@ -296,10 +343,12 @@ export default function ReportsPage() {
       )}
 
       {report.length > 0 && (
-        <p className="text-sm text-muted-foreground mt-4">
-          Showing {report.length} batch(es) for {getDayName(selectedDate)}
-        </p>
-      )}
+            <p className="text-sm text-muted-foreground mt-4">
+              Showing {report.length} batch(es) for {getDayName(selectedDate)}
+            </p>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
