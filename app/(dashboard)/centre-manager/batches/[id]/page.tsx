@@ -105,15 +105,30 @@ export default function BatchDetailPage() {
   };
 
   const handleRemoveFromBatch = async () => {
-    if (!studentToRemove) return;
+    if (!studentToRemove || !batch) return;
+
+    const studentName = studentToRemove.name;
+    const studentId = studentToRemove.id;
+
+    // Close dialog immediately
+    setRemoveDialogOpen(false);
+    setStudentToRemove(null);
+
+    // Optimistic update: remove student from the list immediately
+    setBatch({
+      ...batch,
+      students: batch.students.filter(s => s.id !== studentId),
+    });
 
     toast({
       title: "Removing student...",
-      description: `Removing ${studentToRemove.name} from this batch`,
+      description: `Removing ${studentName} from this batch`,
     });
 
-    const { error } = await removeStudentFromBatch(studentToRemove.id);
+    const { error } = await removeStudentFromBatch(studentId);
     if (error) {
+      // Revert on error - reload data
+      loadBatchDetails();
       toast({
         variant: "destructive",
         title: "Error",
@@ -122,12 +137,11 @@ export default function BatchDetailPage() {
     } else {
       toast({
         title: "Student removed",
-        description: `${studentToRemove.name} has been removed from this batch.`,
+        description: `${studentName} has been removed from this batch.`,
       });
+      // Reload to ensure consistency
       loadBatchDetails();
     }
-    setRemoveDialogOpen(false);
-    setStudentToRemove(null);
   };
 
   if (isLoading) {

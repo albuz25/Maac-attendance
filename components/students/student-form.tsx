@@ -23,6 +23,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Student, CreateStudentInput, Batch } from "@/lib/types";
 import { createStudent, updateStudent } from "@/lib/actions/students";
 import { getBatches } from "@/lib/actions/batches";
+import { useStudents, mutate } from "@/lib/hooks/use-data";
 import { Loader2 } from "lucide-react";
 
 interface StudentFormProps {
@@ -46,6 +47,7 @@ export function StudentForm({
   const [isLoading, setIsLoading] = useState(false);
   const [batches, setBatches] = useState<Batch[]>([]);
   const { toast } = useToast();
+  const { data: existingStudents = [] } = useStudents();
 
   const isEditing = !!student;
 
@@ -75,7 +77,6 @@ export function StudentForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
 
     const input: CreateStudentInput = {
       name,
@@ -83,43 +84,77 @@ export function StudentForm({
       batch_id: batchId && batchId !== "none" ? batchId : null,
     };
 
-    // Optimistic: Close dialog immediately for better UX
+    const studentName = name;
+    const studentRollNumber = rollNumber;
+    const selectedBatch = batches.find(b => b.id === batchId);
+
+    // Close dialog immediately
     onOpenChange(false);
-    
+
+    // Create optimistic student object
+    const optimisticStudent: Student = {
+      id: isEditing ? student!.id : `temp-${Date.now()}`,
+      name: studentName,
+      roll_number: studentRollNumber,
+      batch_id: batchId && batchId !== "none" ? batchId : null,
+      center_id: student?.center_id || "",
+      created_at: student?.created_at || new Date().toISOString(),
+      batch: selectedBatch ? { id: selectedBatch.id, name: selectedBatch.name, days: selectedBatch.days, timing: selectedBatch.timing } as any : undefined,
+    };
+
+    // Optimistic update
+    if (isEditing) {
+      mutate(
+        ["students", undefined],
+        existingStudents.map(s => s.id === student!.id ? optimisticStudent : s),
+        false
+      );
+    } else {
+      mutate(
+        ["students", undefined],
+        [optimisticStudent, ...existingStudents],
+        false
+      );
+    }
+
     toast({
       title: isEditing ? "Updating student..." : "Adding student...",
-      description: "Please wait...",
+      description: studentName,
     });
 
     try {
       const result = isEditing
-        ? await updateStudent(student.id, input)
+        ? await updateStudent(student!.id, input)
         : await createStudent(input);
 
       if (result.error) {
+        // Revert on error
+        mutate(["students", undefined]);
         toast({
           variant: "destructive",
           title: "Error",
           description: result.error,
         });
-        setIsLoading(false);
         return;
       }
 
       toast({
         title: isEditing ? "Student updated" : "Student added",
-        description: `${name} has been ${isEditing ? "updated" : "added"} successfully.`,
+        description: `${studentName} has been ${isEditing ? "updated" : "added"} successfully.`,
       });
 
+      // Revalidate to get real data
+      mutate(["students", undefined]);
+      mutate("batches"); // Update batch student counts
       onSuccess?.();
     } catch (error) {
+      // Revert on error
+      mutate(["students", undefined]);
       toast({
         variant: "destructive",
         title: "Error",
         description: "An unexpected error occurred.",
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 

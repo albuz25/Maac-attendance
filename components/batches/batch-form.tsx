@@ -22,6 +22,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { Batch, CreateBatchInput, BatchDays } from "@/lib/types";
 import { createBatch, updateBatch, getFacultyList } from "@/lib/actions/batches";
+import { useBatches, mutate } from "@/lib/hooks/use-data";
 import { Loader2 } from "lucide-react";
 
 interface BatchFormProps {
@@ -40,6 +41,7 @@ export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormPro
   const [isLoading, setIsLoading] = useState(false);
   const [faculty, setFaculty] = useState<any[]>([]);
   const { toast } = useToast();
+  const { data: existingBatches = [] } = useBatches();
 
   const isEditing = !!batch;
 
@@ -74,7 +76,14 @@ export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormPro
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+
+    const formatTime = (time: string) => {
+      const [hours, minutes] = time.split(':');
+      const hour = parseInt(hours);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const hour12 = hour % 12 || 12;
+      return `${hour12}:${minutes} ${ampm}`;
+    };
 
     const input: CreateBatchInput = {
       name,
@@ -84,43 +93,79 @@ export function BatchForm({ open, onOpenChange, batch, onSuccess }: BatchFormPro
       faculty_id: facultyId || null,
     };
 
-    // Optimistic: Close dialog immediately for better UX
+    const batchName = name;
+    const selectedFaculty = faculty.find(f => f.id === facultyId);
+
+    // Close dialog immediately
     onOpenChange(false);
-    
+
+    // Create optimistic batch object
+    const optimisticBatch: Batch = {
+      id: isEditing ? batch!.id : `temp-${Date.now()}`,
+      name: batchName,
+      days,
+      timing: `${formatTime(startTime)} - ${formatTime(endTime)}`,
+      start_time: startTime,
+      end_time: endTime,
+      faculty_id: facultyId || null,
+      center_id: batch?.center_id || "",
+      created_at: batch?.created_at || new Date().toISOString(),
+      faculty: selectedFaculty ? { id: selectedFaculty.id, full_name: selectedFaculty.full_name, email: selectedFaculty.email } as any : undefined,
+      student_count: batch?.student_count || 0,
+    };
+
+    // Optimistic update
+    if (isEditing) {
+      mutate(
+        "batches",
+        existingBatches.map(b => b.id === batch!.id ? optimisticBatch : b),
+        false
+      );
+    } else {
+      mutate(
+        "batches",
+        [optimisticBatch, ...existingBatches],
+        false
+      );
+    }
+
     toast({
       title: isEditing ? "Updating batch..." : "Creating batch...",
-      description: "Please wait...",
+      description: `${batchName}`,
     });
 
     try {
       const result = isEditing
-        ? await updateBatch(batch.id, input)
+        ? await updateBatch(batch!.id, input)
         : await createBatch(input);
 
       if (result.error) {
+        // Revert on error
+        mutate("batches");
         toast({
           variant: "destructive",
           title: "Error",
           description: result.error,
         });
-        setIsLoading(false);
         return;
       }
 
       toast({
         title: isEditing ? "Batch updated" : "Batch created",
-        description: `${name} has been ${isEditing ? "updated" : "created"} successfully.`,
+        description: `${batchName} has been ${isEditing ? "updated" : "created"} successfully.`,
       });
 
+      // Revalidate to get real data
+      mutate("batches");
       onSuccess?.();
     } catch (error) {
+      // Revert on error
+      mutate("batches");
       toast({
         variant: "destructive",
         title: "Error",
         description: "An unexpected error occurred.",
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
